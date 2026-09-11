@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/Vitalis.Tests.Integration/Vitalis.Tests.Integration.csproj" />
+    <Project Path="tests/Vitalis.Tests.Unit/Vitalis.Tests.Unit.csproj" />
+  </Folder>
+  <Project Path="Vitalis.csproj" />
+</Solution>
