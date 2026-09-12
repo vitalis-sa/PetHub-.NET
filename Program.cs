@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Vitalis.Health;
 using Vitalis.Middlewares;
@@ -88,7 +89,10 @@ app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthorization();
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = RespostaHealthCheck.EscreverAsync
+});
 
 app.MapStaticAssets();
 app.MapControllers();

@@ -12,11 +12,13 @@ public class ResponsavelsApiControllerTests : IClassFixture<ConfiguracaoFixture>
 {
     private readonly ConfiguracaoFixture _fixture;
     private readonly Mock<IResponsavelRepository> _repositorioMock;
+    private readonly Mock<ILogger<ResponsavelsApiController>> _loggerMock;
 
     public ResponsavelsApiControllerTests(ConfiguracaoFixture fixture)
     {
         _fixture = fixture;
         _repositorioMock = new Mock<IResponsavelRepository>();
+        _loggerMock = new Mock<ILogger<ResponsavelsApiController>>();
     }
 
     private ResponsavelsApiController CriarController(string? serviceToken = null)
@@ -24,7 +26,7 @@ public class ResponsavelsApiControllerTests : IClassFixture<ConfiguracaoFixture>
             new ResponsavelsApiController(
                 _repositorioMock.Object,
                 _fixture.Configuration,
-                new Mock<ILogger<ResponsavelsApiController>>().Object),
+                _loggerMock.Object),
             serviceToken);
 
     [Fact]
@@ -305,6 +307,31 @@ public class ResponsavelsApiControllerTests : IClassFixture<ConfiguracaoFixture>
         // Assert
         resultado.Should().BeOfType<NotFoundObjectResult>();
         _repositorioMock.Verify(r => r.Delete(It.IsAny<long>()), Times.Never);
+    }
+
+    [Fact]
+    public void Cadastrar_RepositorioIndisponivel_DeveRegistrarLogDeErroERetornar500()
+    {
+        // Arrange
+        var dto = NovoCadastroDto();
+        _repositorioMock.Setup(r => r.GetByCpf(dto.Cpf)).Returns((Responsavel?)null);
+        _repositorioMock.Setup(r => r.Add(It.IsAny<Responsavel>()))
+            .Throws(new InvalidOperationException("Banco de dados indisponível"));
+        var controller = CriarController();
+
+        // Act
+        var resultado = controller.Cadastrar(dto);
+
+        // Assert
+        var erro = resultado.Should().BeOfType<ObjectResult>().Subject;
+        erro.StatusCode.Should().Be(500);
+        _loggerMock.Verify(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception>(),
+                (Func<It.IsAnyType, Exception?, string>)It.IsAny<object>()),
+            Times.Once);
     }
 
     private const string SenhaPadrao = "SenhaSegura@123";

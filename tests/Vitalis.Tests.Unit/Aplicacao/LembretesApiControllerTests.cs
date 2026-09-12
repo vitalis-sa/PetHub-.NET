@@ -13,11 +13,13 @@ public class LembretesApiControllerTests : IClassFixture<ConfiguracaoFixture>
 {
     private readonly ConfiguracaoFixture _fixture;
     private readonly Mock<ILembreteRepository> _repositorioMock;
+    private readonly Mock<ILogger<LembretesApiController>> _loggerMock;
 
     public LembretesApiControllerTests(ConfiguracaoFixture fixture)
     {
         _fixture = fixture;
         _repositorioMock = new Mock<ILembreteRepository>();
+        _loggerMock = new Mock<ILogger<LembretesApiController>>();
     }
 
     private LembretesApiController CriarController(string? serviceToken = null)
@@ -25,7 +27,7 @@ public class LembretesApiControllerTests : IClassFixture<ConfiguracaoFixture>
             new LembretesApiController(
                 _repositorioMock.Object,
                 _fixture.Configuration,
-                new Mock<ILogger<LembretesApiController>>().Object),
+                _loggerMock.Object),
             serviceToken);
 
     [Fact]
@@ -229,6 +231,30 @@ public class LembretesApiControllerTests : IClassFixture<ConfiguracaoFixture>
         // Assert
         resultado.Should().BeOfType<NotFoundObjectResult>();
         _repositorioMock.Verify(r => r.Delete(It.IsAny<long>()), Times.Never);
+    }
+
+    [Fact]
+    public void Criar_RepositorioIndisponivel_DeveRegistrarLogDeErroERetornar500()
+    {
+        // Arrange
+        var dto = NovoCriarLembreteDto();
+        _repositorioMock.Setup(r => r.Add(It.IsAny<Lembrete>()))
+            .Throws(new InvalidOperationException("Banco de dados indisponível"));
+        var controller = CriarController(ConfiguracaoFixture.ServiceTokenValido);
+
+        // Act
+        var resultado = controller.Criar(dto);
+
+        // Assert
+        var erro = resultado.Should().BeOfType<ObjectResult>().Subject;
+        erro.StatusCode.Should().Be(500);
+        _loggerMock.Verify(l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception>(),
+                (Func<It.IsAnyType, Exception?, string>)It.IsAny<object>()),
+            Times.Once);
     }
 
     private static Lembrete NovoLembrete(

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using Vitalis.Middlewares;
 using Vitalis.Tests.Integration.Fixtures;
@@ -25,21 +27,59 @@ public class MonitoramentoEndpointsTests : IDisposable
     {
         // Act
         var resposta = await _client.GetAsync("/health");
-        var corpo = await resposta.Content.ReadAsStringAsync();
+        var corpo = await resposta.Content.ReadFromJsonAsync<JsonElement>();
 
         // Assert
         resposta.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
-        corpo.Should().Be("Unhealthy");
+        corpo.GetProperty("status").GetString().Should().Be("Unhealthy");
+        corpo.GetProperty("duracaoTotalMs").GetDouble().Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]
-    public async Task GetHealth_EmQualquerChamada_DeveResponderEmTextoSimples()
+    public async Task GetHealth_EmQualquerChamada_DeveResponderEmJson()
     {
         // Arrange & Act
         var resposta = await _client.GetAsync("/health");
 
         // Assert
-        resposta.Content.Headers.ContentType!.MediaType.Should().Be("text/plain");
+        resposta.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+    }
+
+    [Fact]
+    public async Task GetHealth_EmQualquerChamada_DeveDetalharCadaVerificacaoRegistrada()
+    {
+        // Act
+        var resposta = await _client.GetAsync("/health");
+        var corpo = await resposta.Content.ReadFromJsonAsync<JsonElement>();
+
+        // Assert
+        var verificacoes = corpo.GetProperty("verificacoes").EnumerateArray().ToList();
+
+        verificacoes.Should().HaveCount(2);
+        verificacoes.Select(v => v.GetProperty("nome").GetString())
+            .Should().BeEquivalentTo(new[] { "banco_dados", "servico_externo" });
+
+        foreach (var verificacao in verificacoes)
+        {
+            verificacao.GetProperty("status").GetString().Should().NotBeNullOrWhiteSpace();
+            verificacao.GetProperty("descricao").GetString().Should().NotBeNullOrWhiteSpace();
+            verificacao.GetProperty("duracaoMs").GetDouble().Should().BeGreaterThanOrEqualTo(0);
+        }
+    }
+
+    [Fact]
+    public async Task GetHealth_ComOBackendJavaFora_DeveIdentificarAVerificacaoQueFalhou()
+    {
+        // Act
+        var resposta = await _client.GetAsync("/health");
+        var corpo = await resposta.Content.ReadFromJsonAsync<JsonElement>();
+
+        // Assert
+        var servicoExterno = corpo.GetProperty("verificacoes").EnumerateArray()
+            .Single(v => v.GetProperty("nome").GetString() == "servico_externo");
+
+        servicoExterno.GetProperty("status").GetString().Should().Be("Unhealthy");
+        servicoExterno.GetProperty("erro").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]

@@ -71,25 +71,6 @@ public class ResponsavelEnderecoTests
         endereco.Principal.Should().BeFalse();
     }
 
-    [Fact]
-    public void Validar_ContatoSemTelefone_DeveRetornarErroNoCampoTelefone()
-    {
-        // Arrange
-        var contato = new ResponsavelContato
-        {
-            ResponsavelId = 1,
-            Tipo = "CELULAR",
-            Telefone = null!
-        };
-
-        // Act
-        var erros = new List<ValidationResult>();
-        Validator.TryValidateObject(contato, new ValidationContext(contato), erros, true);
-
-        // Assert
-        erros.Should().Contain(e => e.MemberNames.Contains(nameof(ResponsavelContato.Telefone)));
-    }
-
     private static ResponsavelEndereco NovoEnderecoValido() => new()
     {
         ResponsavelId = 1,

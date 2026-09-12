@@ -101,37 +101,52 @@ public class ResponsavelsApiController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        if (_repo.GetByCpf(dto.Cpf) != null)
+        try
         {
-            activity?.SetStatus(ActivityStatusCode.Error, "CPF já cadastrado");
+            if (_repo.GetByCpf(dto.Cpf) != null)
+            {
+                activity?.SetStatus(ActivityStatusCode.Error, "CPF já cadastrado");
+                AplicacaoMetricas.ResponsaveisCadastradosContador.Add(1,
+                    new KeyValuePair<string, object?>("status", "erro_cpf_duplicado"));
+
+                _logger.LogWarning("Tentativa de cadastrar responsável com CPF já existente.");
+                return Conflict(new { erro = "CPF já cadastrado" });
+            }
+
+            _logger.LogInformation("Tentando cadastrar responsável: {NomeResponsavel}", dto.Nome);
+
+            var responsavel = new Responsavel
+            {
+                Nome  = dto.Nome,
+                Cpf   = dto.Cpf,
+                Email = dto.Email,
+                Senha = dto.Senha,
+                Ativo = true
+            };
+
+            _repo.Add(responsavel);
+
+            // Incrementa a métrica customizada de responsáveis cadastrados
             AplicacaoMetricas.ResponsaveisCadastradosContador.Add(1,
-                new KeyValuePair<string, object?>("status", "erro_cpf_duplicado"));
+                new KeyValuePair<string, object?>("status", "sucesso"));
 
-            _logger.LogWarning("Tentativa de cadastrar responsável com CPF já existente.");
-            return Conflict(new { erro = "CPF já cadastrado" });
+            _logger.LogInformation("Responsável {ResponsavelId} cadastrado com sucesso.", responsavel.Id);
+
+            return CreatedAtAction(nameof(GetById), new { id = responsavel.Id },
+                new { responsavel.Id, responsavel.Nome, responsavel.Email });
         }
-
-        _logger.LogInformation("Tentando cadastrar responsável: {NomeResponsavel}", dto.Nome);
-
-        var responsavel = new Responsavel
+        catch (Exception ex)
         {
-            Nome  = dto.Nome,
-            Cpf   = dto.Cpf,
-            Email = dto.Email,
-            Senha = dto.Senha,
-            Ativo = true
-        };
+            activity?.SetStatus(ActivityStatusCode.Error, "Falha inesperada no cadastro");
+            AplicacaoMetricas.ResponsaveisCadastradosContador.Add(1,
+                new KeyValuePair<string, object?>("status", "erro_interno"));
 
-        _repo.Add(responsavel);
+            _logger.LogError(ex,
+                "Falha inesperada ao cadastrar o responsável {NomeResponsavel}.", dto.Nome);
 
-        // Incrementa a métrica customizada de responsáveis cadastrados
-        AplicacaoMetricas.ResponsaveisCadastradosContador.Add(1,
-            new KeyValuePair<string, object?>("status", "sucesso"));
-
-        _logger.LogInformation("Responsável {ResponsavelId} cadastrado com sucesso.", responsavel.Id);
-
-        return CreatedAtAction(nameof(GetById), new { id = responsavel.Id },
-            new { responsavel.Id, responsavel.Nome, responsavel.Email });
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { erro = "Erro interno ao cadastrar responsável" });
+        }
     }
 
     [HttpPost("login")]

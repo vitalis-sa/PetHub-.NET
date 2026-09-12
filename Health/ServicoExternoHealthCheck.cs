@@ -44,11 +44,21 @@ public class ServicoExternoHealthCheck : IHealthCheck
             }
 
             return HealthCheckResult.Unhealthy(
-                $"Serviço externo (pethub-java) respondeu {(int)resposta.StatusCode}.");
+                $"Serviço externo (pethub-java) respondeu {(int)resposta.StatusCode}.",
+                data: new Dictionary<string, object>
+                {
+                    { "LatenciaMs", cronometro.ElapsedMilliseconds },
+                    { "StatusCode", (int)resposta.StatusCode }
+                });
         }
         catch (Exception ex)
         {
-            return HealthCheckResult.Unhealthy("Serviço externo (pethub-java) inacessível.", ex);
+            cronometro.Stop();
+
+            return HealthCheckResult.Unhealthy(
+                "Serviço externo (pethub-java) inacessível.",
+                ex,
+                new Dictionary<string, object> { { "LatenciaMs", cronometro.ElapsedMilliseconds } });
         }
     }
 }

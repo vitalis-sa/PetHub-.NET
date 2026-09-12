@@ -103,30 +103,46 @@ public class LembretesApiController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        _logger.LogInformation(
-            "Tentando criar lembrete do tipo {TipoLembrete} para o responsável {ResponsavelId}.",
-            dto.Tipo, dto.ResponsavelId);
-
-        var lembrete = new Lembrete
+        try
         {
-            ResponsavelId  = dto.ResponsavelId,
-            PetId          = dto.PetId,
-            Tipo           = dto.Tipo,
-            DataAgendada   = dto.DataAgendada,
-            Mensagem       = dto.Mensagem,
-            ReferenciaId   = dto.ReferenciaId,
-            ReferenciaTipo = dto.ReferenciaTipo,
-        };
+            _logger.LogInformation(
+                "Tentando criar lembrete do tipo {TipoLembrete} para o responsável {ResponsavelId}.",
+                dto.Tipo, dto.ResponsavelId);
 
-        _repo.Add(lembrete);
+            var lembrete = new Lembrete
+            {
+                ResponsavelId  = dto.ResponsavelId,
+                PetId          = dto.PetId,
+                Tipo           = dto.Tipo,
+                DataAgendada   = dto.DataAgendada,
+                Mensagem       = dto.Mensagem,
+                ReferenciaId   = dto.ReferenciaId,
+                ReferenciaTipo = dto.ReferenciaTipo,
+            };
 
-        // Incrementa a métrica customizada de lembretes criados
-        AplicacaoMetricas.LembretesCriadosContador.Add(1,
-            new KeyValuePair<string, object?>("status", "sucesso"));
+            _repo.Add(lembrete);
 
-        _logger.LogInformation("Lembrete {LembreteId} criado com sucesso.", lembrete.Id);
+            // Incrementa a métrica customizada de lembretes criados
+            AplicacaoMetricas.LembretesCriadosContador.Add(1,
+                new KeyValuePair<string, object?>("status", "sucesso"));
 
-        return CreatedAtAction(nameof(GetById), new { id = lembrete.Id }, new { lembrete.Id });
+            _logger.LogInformation("Lembrete {LembreteId} criado com sucesso.", lembrete.Id);
+
+            return CreatedAtAction(nameof(GetById), new { id = lembrete.Id }, new { lembrete.Id });
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "Falha inesperada na criação");
+            AplicacaoMetricas.LembretesCriadosContador.Add(1,
+                new KeyValuePair<string, object?>("status", "erro_interno"));
+
+            _logger.LogError(ex,
+                "Falha inesperada ao criar lembrete do tipo {TipoLembrete} para o responsável {ResponsavelId}.",
+                dto.Tipo, dto.ResponsavelId);
+
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { erro = "Erro interno ao criar lembrete" });
+        }
     }
 
     [HttpPatch("{id:long}/status")]

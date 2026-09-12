@@ -11,7 +11,7 @@ O PetHub é um sistema veterinário composto por dois backends que compartilham 
 
 O app mobile consome ambos os backends. O Java chama a API do Vitalis para buscar responsáveis por CPF e para criar lembretes de eventos veterinários.
 
-Na **3ª sprint** a aplicação ganhou uma camada de **monitoramento e observabilidade** (Health Checks, logging estruturado com Serilog e tracing/métricas com OpenTelemetry) e uma suíte de **testes automatizados** no padrão AAA, com 115 testes unitários e de integração.
+Na **3ª sprint** a aplicação ganhou uma camada de **monitoramento e observabilidade** (Health Checks, logging estruturado com Serilog e tracing/métricas com OpenTelemetry) e uma suíte de **testes automatizados** no padrão AAA, com 127 testes unitários e de integração.
 
 ---
 
@@ -58,8 +58,8 @@ export PATH="$PATH:$HOME/.dotnet/tools"
 
 ```bash
 # 1. Clonar o repositório
-git clone https://github.com/pedrocpdev/Vitalis.git
-cd Vitalis
+git clone https://github.com/vitalis-sa/PetHub-.NET.git
+cd PetHub-.NET
 
 # 2. Restaurar dependências
 dotnet restore
@@ -89,16 +89,17 @@ Vitalis/
 ├── Dto/  Models/  Repositories/  Migrations/
 ├── Health/                       # Health Checks customizados (3ª sprint)
 │   ├── BancoDadosHealthCheck.cs        # Conectividade com o Oracle
-│   └── ServicoExternoHealthCheck.cs    # Disponibilidade do backend Java
+│   ├── ServicoExternoHealthCheck.cs    # Disponibilidade do backend Java
+│   └── RespostaHealthCheck.cs          # ResponseWriter JSON do endpoint /health
 ├── Middlewares/
 │   └── CorrelationIdMiddleware.cs      # X-Correlation-ID no log estruturado
 ├── Observabilidade/
 │   └── AplicacaoMetricas.cs            # Meter, Counters e ActivitySource da aplicação
 ├── Program.cs                    # Serilog, Health Checks e OpenTelemetry
 └── tests/
-    ├── Vitalis.Tests.Unit/             # Testes unitários (69)
+    ├── Vitalis.Tests.Unit/             # Testes unitários (79)
     │   ├── Dominio/  Aplicacao/  Fixtures/
-    └── Vitalis.Tests.Integration/      # Testes de integração (46)
+    └── Vitalis.Tests.Integration/      # Testes de integração (48)
         ├── Endpoints/  Monitoramento/  Fixtures/
 ```
 
@@ -114,21 +115,40 @@ que implementam a interface `IHealthCheck`:
 
 | Verificação | O que faz | Resultado |
 |---|---|---|
-| `banco_dados` | Testa a conexão com o Oracle através do `AppDbContext` e mede a latência | `Healthy` com `LatenciaMs`, ou `Unhealthy` |
-| `servico_externo` | Faz um `GET` HTTP no backend Java (`ServicosExternos:PethubJava`) | `Healthy` com `LatenciaMs` e `StatusCode`, ou `Unhealthy` |
+| `banco_dados` | Testa a conexão com o Oracle através do `AppDbContext` e mede a latência | `Healthy` ou `Unhealthy`, sempre com `LatenciaMs` |
+| `servico_externo` | Faz um `GET` HTTP no backend Java (`ServicosExternos:PethubJava`) | `Healthy` ou `Unhealthy`, com `LatenciaMs` e `StatusCode` |
 
-O endpoint responde em texto simples com o status agregado:
+O status agregado define o código HTTP:
 
-| Status geral | Corpo | HTTP |
+| Status geral | Campo `status` | HTTP |
 |---|---|---|
 | Todas as verificações saudáveis | `Healthy` | `200 OK` |
 | Qualquer verificação com falha | `Unhealthy` | `503 Service Unavailable` |
 
+O corpo é escrito em **JSON** por um `ResponseWriter` customizado
+(`Health/RespostaHealthCheck.cs`), registrado no `MapHealthChecks` via `HealthCheckOptions`.
+Em vez do texto simples com o status agregado, ele detalha **cada verificação**:
+
+| Campo | Conteúdo |
+|---|---|
+| `status` | Status agregado da API |
+| `duracaoTotalMs` | Tempo total gasto no conjunto de verificações |
+| `verificadoEm` | Instante (UTC) da coleta |
+| `verificacoes[].nome` | Nome registrado no `AddCheck<>` (`banco_dados`, `servico_externo`) |
+| `verificacoes[].status` | `Healthy`, `Degraded` ou `Unhealthy` |
+| `verificacoes[].descricao` | Mensagem devolvida pelo `IHealthCheck` |
+| `verificacoes[].duracaoMs` | Duração daquela verificação isolada |
+| `verificacoes[].dados` | Dados coletados pelo check (`LatenciaMs`, `StatusCode`) |
+| `verificacoes[].erro` | Mensagem da exceção, quando a verificação falha |
+
 Como monitorar pelo terminal:
 
 ```bash
-# Corpo da resposta
-curl http://localhost:5192/health
+# Corpo completo da resposta
+curl -s http://localhost:5192/health | jq
+
+# Apenas o status agregado
+curl -s http://localhost:5192/health | jq -r .status
 
 # Apenas o código HTTP — útil para orquestradores (Kubernetes, Azure)
 curl -o /dev/null -w "%{http_code}\n" http://localhost:5192/health
@@ -136,8 +156,33 @@ curl -o /dev/null -w "%{http_code}\n" http://localhost:5192/health
 
 Exemplo de saída com o banco no ar e o backend Java fora:
 
-```
-Unhealthy
+```json
+{
+  "status": "Unhealthy",
+  "duracaoTotalMs": 2043.51,
+  "verificadoEm": "2026-09-12T22:34:07.1183920+00:00",
+  "verificacoes": [
+    {
+      "nome": "banco_dados",
+      "status": "Healthy",
+      "descricao": "Conexão com o Banco de Dados estabelecida com sucesso.",
+      "duracaoMs": 41.27,
+      "dados": {
+        "LatenciaMs": 39
+      }
+    },
+    {
+      "nome": "servico_externo",
+      "status": "Unhealthy",
+      "descricao": "Serviço externo (pethub-java) inacessível.",
+      "duracaoMs": 2043.18,
+      "dados": {
+        "LatenciaMs": 2042
+      },
+      "erro": "Connection refused (localhost:8080)"
+    }
+  ]
+}
 ```
 
 > Para simular uma falha de conexão em sala, basta apontar a `OracleConnection`
@@ -160,7 +205,7 @@ e grava em dois **Sinks** simultâneos:
 |---|---|
 | `Information` | Início das consultas, cadastros e atualizações bem-sucedidas |
 | `Warning` | Recurso não encontrado, credenciais inválidas, Service Token inválido, dados rejeitados |
-| `Error` | Falhas inesperadas capturadas pela pipeline |
+| `Error` | Falhas inesperadas nos endpoints de escrita (`POST /api/responsavel/cadastro` e `POST /api/lembretes`): o `try/catch` chama `_logger.LogError(ex, ...)` com a exceção completa, marca o span como `Error`, contabiliza a métrica com `status=erro_interno` e devolve `500` |
 
 **Correlation ID:** o `CorrelationIdMiddleware` lê o header `X-Correlation-ID` da requisição
 (ou gera um novo GUID), devolve o valor no header da resposta e o injeta no `LogContext` do
@@ -176,6 +221,9 @@ Saída correspondente no console:
 
 ```
 [22:34:07 WRN] [aula-42] Criação de lembrete recusada por Service Token inválido.
+[22:34:09 ERR] [aula-42] Falha inesperada ao criar lembrete do tipo VACINA para o responsável 1.
+Oracle.ManagedDataAccess.Client.OracleException: ORA-12541: TNS:no listener
+   at Vitalis.Repositories.LembreteRepository.Add(Lembrete lembrete)
 ```
 
 ### Tracing distribuído e métricas (OpenTelemetry)
@@ -260,12 +308,12 @@ Em `appsettings.json`:
 
 ## Testes automatizados
 
-A solução tem **115 testes** organizados em dois projetos separados por camada:
+A solução tem **127 testes** organizados em dois projetos separados por camada:
 
 | Projeto | Testes | Escopo |
 |---|---|---|
-| `tests/Vitalis.Tests.Unit` | 69 | Camadas de **Domínio** e **Aplicação**, com dependências isoladas por Moq |
-| `tests/Vitalis.Tests.Integration` | 46 | Fluxo HTTP completo via `WebApplicationFactory` |
+| `tests/Vitalis.Tests.Unit` | 79 | Camadas de **Domínio** e **Aplicação**, com dependências isoladas por Moq |
+| `tests/Vitalis.Tests.Integration` | 48 | Fluxo HTTP completo via `WebApplicationFactory` |
 
 ### Como executar
 
@@ -352,8 +400,9 @@ campos obrigatórios, limites de tamanho (nome, CPF, UF, CEP), valores padrão e
 
 **Unitários — Aplicação** (`tests/Vitalis.Tests.Unit/Aplicacao`)
 Os quatro controllers com os repositórios simulados por Moq: caminhos de sucesso, `404`, `400`
-por `ModelState` inválido, `409` de CPF duplicado, `401` de login e de `X-Service-Token`, e
-verificação, com `Times.Once` e `Times.Never`, de que o repositório é (ou não) chamado.
+por `ModelState` inválido, `409` de CPF duplicado, `401` de login e de `X-Service-Token`, `500`
+com registro de `LogError` quando o repositório lança exceção, e verificação, com `Times.Once` e
+`Times.Never`, de que o repositório é (ou não) chamado.
 
 **Integração — Endpoints** (`tests/Vitalis.Tests.Integration/Endpoints`)
 Fluxo HTTP completo: cadastro e login, garantia de que a senha nunca aparece na resposta,
@@ -362,8 +411,10 @@ Fluxo HTTP completo: cadastro e login, garantia de que a senha nunca aparece na 
 responsáveis nos recursos aninhados e a regra de endereço/contato principal.
 
 **Integração — Monitoramento** (`tests/Vitalis.Tests.Integration/Monitoramento`)
-O endpoint `/health` (status e content-type), o eco do header `X-Correlation-ID`, a geração
-de identificadores distintos por requisição e a disponibilidade do documento OpenAPI.
+O endpoint `/health`: status agregado e HTTP `503`, `Content-Type` `application/json`, o
+detalhamento de cada verificação no corpo (nome, status, descrição e duração) e a
+identificação de qual check falhou. Cobre também o eco do header `X-Correlation-ID`, a
+geração de identificadores distintos por requisição e a disponibilidade do documento OpenAPI.
 
 ---
 
@@ -460,7 +511,7 @@ Body: { responsavelId, petId, tipo, dataAgendada, mensagem, referenciaId, refere
 ## Integrantes
 
 - Pedro Chasci Puga — RM565154
-- Ana Flavia Camelo — RM562745
+- Ana Flavia Camelo — RM561489
 - Gustavo kenji Terada — RM562745
 - João Guilherme Carvalho Novaes — RM566234
 - Lucas Figueiredo Vieira — RM561342

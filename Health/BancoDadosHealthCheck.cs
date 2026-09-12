@@ -32,11 +32,18 @@ public class BancoDadosHealthCheck : IHealthCheck
                     data: new Dictionary<string, object> { { "LatenciaMs", cronometro.ElapsedMilliseconds } });
             }
 
-            return HealthCheckResult.Unhealthy("Falha ao conectar no Banco de Dados (Oracle).");
+            return HealthCheckResult.Unhealthy(
+                "Falha ao conectar no Banco de Dados (Oracle).",
+                data: new Dictionary<string, object> { { "LatenciaMs", cronometro.ElapsedMilliseconds } });
         }
         catch (Exception ex)
         {
-            return HealthCheckResult.Unhealthy("Falha ao conectar no Banco de Dados (Oracle).", ex);
+            cronometro.Stop();
+
+            return HealthCheckResult.Unhealthy(
+                "Falha ao conectar no Banco de Dados (Oracle).",
+                ex,
+                new Dictionary<string, object> { { "LatenciaMs", cronometro.ElapsedMilliseconds } });
         }
     }
 }
